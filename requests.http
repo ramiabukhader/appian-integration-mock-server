@@ -1,0 +1,52 @@
+### Health check
+GET http://localhost:5080/health
+
+### Customer lookup (found)
+GET http://localhost:5080/api/customers/CUST-1001
+
+### Customer lookup (not found -> structured 404 error)
+GET http://localhost:5080/api/customers/CUST-9999
+
+### Payment validation (valid -> APPROVED)
+POST http://localhost:5080/api/payments/validate
+Content-Type: application/json
+X-Correlation-Id: demo-0001
+
+{
+  "currency": "GBP",
+  "amount": 250.00,
+  "debtorAccount": "GB00TEST00000000000001",
+  "creditorAccount": "GB00TEST00000000000002"
+}
+
+### Payment validation (over threshold -> REVIEW_REQUIRED)
+POST http://localhost:5080/api/payments/validate
+Content-Type: application/json
+
+{
+  "currency": "GBP",
+  "amount": 25000.00,
+  "debtorAccount": "GB00TEST00000000000001",
+  "creditorAccount": "GB00TEST00000000000002"
+}
+
+### Payment validation (invalid -> structured 400 error)
+POST http://localhost:5080/api/payments/validate
+Content-Type: application/json
+
+{
+  "currency": "POUND",
+  "amount": -5,
+  "debtorAccount": "",
+  "creditorAccount": ""
+}
+
+### Status callback (accepted)
+POST http://localhost:5080/api/callbacks/status
+Content-Type: application/json
+
+{
+  "reference": "CASE-2026-000123",
+  "status": "COMPLETED",
+  "detail": "Downstream processing finished."
+}
