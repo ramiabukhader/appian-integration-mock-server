@@ -33,6 +33,11 @@ structured response contract**:
 Every request is tagged with an `X-Correlation-Id` (generated if absent and
 echoed back) so calls can be traced end to end.
 
+Malformed or missing JSON bodies and unsupported request content types use the
+same `ApiError` envelope as business validation failures. These framework-level
+failures return stable `REQUEST_BODY_INVALID` (400) or `UNSUPPORTED_MEDIA_TYPE`
+(415) codes without echoing the submitted body or parser details.
+
 ## Architecture
 
 ```mermaid

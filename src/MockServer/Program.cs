@@ -35,6 +35,29 @@ app.Use(async (context, next) =>
     await next();
 });
 
+// Minimal API request binding happens before endpoint handlers. Translate only
+// expected client binding failures so every documented client error uses the
+// same envelope without masking unexpected application exceptions.
+app.Use(async (context, next) =>
+{
+    try
+    {
+        await next();
+    }
+    catch (BadHttpRequestException exception) when (
+        exception.StatusCode is StatusCodes.Status400BadRequest or StatusCodes.Status415UnsupportedMediaType)
+    {
+        await WriteRequestError(context, exception.StatusCode);
+        return;
+    }
+
+    if (!context.Response.HasStarted &&
+        context.Response.StatusCode is StatusCodes.Status400BadRequest or StatusCodes.Status415UnsupportedMediaType)
+    {
+        await WriteRequestError(context, context.Response.StatusCode);
+    }
+});
+
 // --- Health -------------------------------------------------------------
 app.MapGet("/health", () => Results.Ok(new
 {
@@ -91,7 +114,8 @@ app.MapPost("/api/payments/validate", (PaymentValidationRequest request, HttpCon
 .WithSummary("Validate a fictional payment request")
 .Accepts<PaymentValidationRequest>("application/json")
 .Produces<PaymentValidationResponse>(StatusCodes.Status200OK)
-.Produces<ApiError>(StatusCodes.Status400BadRequest);
+.Produces<ApiError>(StatusCodes.Status400BadRequest)
+.Produces<ApiError>(StatusCodes.Status415UnsupportedMediaType);
 
 // --- Status callback ----------------------------------------------------
 app.MapPost("/api/callbacks/status", (StatusCallbackRequest request, HttpContext ctx) =>
@@ -120,12 +144,32 @@ app.MapPost("/api/callbacks/status", (StatusCallbackRequest request, HttpContext
 .WithSummary("Accept a fictional asynchronous status callback")
 .Accepts<StatusCallbackRequest>("application/json")
 .Produces(StatusCodes.Status202Accepted)
-.Produces<ApiError>(StatusCodes.Status400BadRequest);
+.Produces<ApiError>(StatusCodes.Status400BadRequest)
+.Produces<ApiError>(StatusCodes.Status415UnsupportedMediaType);
 
 app.Run();
 
 static string Correlation(HttpContext ctx) =>
     ctx.Items["CorrelationId"] as string ?? Guid.NewGuid().ToString();
+
+static async Task WriteRequestError(HttpContext context, int statusCode)
+{
+    var unsupportedMediaType = statusCode == StatusCodes.Status415UnsupportedMediaType;
+    var correlationId = Correlation(context);
+    var error = ApiError.Create(
+        code: unsupportedMediaType ? "UNSUPPORTED_MEDIA_TYPE" : "REQUEST_BODY_INVALID",
+        category: "client",
+        message: unsupportedMediaType
+            ? "Content-Type must be application/json."
+            : "Request body is missing or contains malformed JSON.",
+        correlationId: correlationId,
+        retryable: false);
+
+    context.Response.Clear();
+    context.Response.StatusCode = statusCode;
+    context.Response.Headers["X-Correlation-Id"] = correlationId;
+    await context.Response.WriteAsJsonAsync(error);
+}
 
 // Expose the generated entry point to WebApplicationFactory without changing
 // the production startup path.
