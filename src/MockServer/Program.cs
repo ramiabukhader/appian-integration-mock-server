@@ -1,8 +1,28 @@
+using Microsoft.OpenApi.Models;
 using MockServer.Data;
 using MockServer.Models;
 
 var builder = WebApplication.CreateBuilder(args);
+builder.Services.AddEndpointsApiExplorer();
+builder.Services.AddSwaggerGen(options =>
+{
+    options.SwaggerDoc("v1", new OpenApiInfo
+    {
+        Title = "Appian Integration Mock Server",
+        Version = "v1",
+        Description = "Fictional endpoints for local Appian integration development and testing."
+    });
+});
+
 var app = builder.Build();
+
+app.UseSwagger();
+app.UseSwaggerUI(options =>
+{
+    options.SwaggerEndpoint("/swagger/v1/swagger.json", "Appian Integration Mock Server v1");
+    options.RoutePrefix = "swagger";
+    options.DocumentTitle = "Appian Integration Mock Server API";
+});
 
 // Attach / propagate a correlation id on every request so an Appian process
 // can trace a call end to end.
@@ -21,7 +41,10 @@ app.MapGet("/health", () => Results.Ok(new
     status = "healthy",
     service = "appian-integration-mock-server",
     timestampUtc = DateTime.UtcNow
-}));
+}))
+.WithName("GetHealth")
+.WithSummary("Check service health")
+.Produces(StatusCodes.Status200OK);
 
 // --- Customer lookup ----------------------------------------------------
 app.MapGet("/api/customers/{id}", (string id, HttpContext ctx) =>
@@ -35,7 +58,11 @@ app.MapGet("/api/customers/{id}", (string id, HttpContext ctx) =>
             correlationId: Correlation(ctx),
             retryable: false))
         : Results.Ok(customer);
-});
+})
+.WithName("GetCustomer")
+.WithSummary("Look up a fictional customer")
+.Produces<Customer>(StatusCodes.Status200OK)
+.Produces<ApiError>(StatusCodes.Status404NotFound);
 
 // --- Payment validation -------------------------------------------------
 app.MapPost("/api/payments/validate", (PaymentValidationRequest request, HttpContext ctx) =>
@@ -59,7 +86,12 @@ app.MapPost("/api/payments/validate", (PaymentValidationRequest request, HttpCon
         EvaluatedAtUtc: DateTime.UtcNow);
 
     return Results.Ok(response);
-});
+})
+.WithName("ValidatePayment")
+.WithSummary("Validate a fictional payment request")
+.Accepts<PaymentValidationRequest>("application/json")
+.Produces<PaymentValidationResponse>(StatusCodes.Status200OK)
+.Produces<ApiError>(StatusCodes.Status400BadRequest);
 
 // --- Status callback ----------------------------------------------------
 app.MapPost("/api/callbacks/status", (StatusCallbackRequest request, HttpContext ctx) =>
@@ -83,7 +115,12 @@ app.MapPost("/api/callbacks/status", (StatusCallbackRequest request, HttpContext
     };
 
     return Results.Accepted($"/api/callbacks/status/{request.Reference}", acknowledgement);
-});
+})
+.WithName("AcceptStatusCallback")
+.WithSummary("Accept a fictional asynchronous status callback")
+.Accepts<StatusCallbackRequest>("application/json")
+.Produces(StatusCodes.Status202Accepted)
+.Produces<ApiError>(StatusCodes.Status400BadRequest);
 
 app.Run();
 
