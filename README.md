@@ -139,6 +139,8 @@ appian-integration-mock-server/
 ├── LICENSE
 ├── .gitignore
 ├── requests.http
+├── AppianIntegrationMockServer.sln
+├── tests/MockServer.Tests/
 └── src/
     └── MockServer/
         ├── MockServer.csproj
@@ -158,6 +160,18 @@ appian-integration-mock-server/
 - Data is in-memory and read-only; nothing is persisted between runs.
 - No authentication — it is a local development tool, not a production service.
 - Business rules (e.g. the payment threshold) are deliberately trivial.
+
+## Development and tests
+
+Restore, build, and run the endpoint-level test suite with:
+
+```bash
+dotnet restore AppianIntegrationMockServer.sln
+dotnet build AppianIntegrationMockServer.sln --configuration Release --no-restore --warnaserror
+dotnet test AppianIntegrationMockServer.sln --configuration Release --no-build
+```
+
+The tests exercise the 400/404 contracts, correlation-id propagation, and validation details using fictional request data. GitHub Actions runs the same build and tests for pull requests and pushes to `main`.
 
 ## Roadmap
 

@@ -1,0 +1,27 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+          cache: true
+          cache-dependency-path: tests/MockServer.Tests/MockServer.Tests.csproj
+      - name: Restore
+        run: dotnet restore AppianIntegrationMockServer.sln
+      - name: Build
+        run: dotnet build AppianIntegrationMockServer.sln --configuration Release --no-restore --warnaserror
+      - name: Test
+        run: dotnet test AppianIntegrationMockServer.sln --configuration Release --no-build --verbosity normal

@@ -126,3 +126,7 @@ app.Run();
 
 static string Correlation(HttpContext ctx) =>
     ctx.Items["CorrelationId"] as string ?? Guid.NewGuid().ToString();
+
+// Expose the generated entry point to WebApplicationFactory without changing
+// the production startup path.
+public partial class Program;
