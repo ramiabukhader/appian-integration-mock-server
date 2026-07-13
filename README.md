@@ -63,6 +63,12 @@ Check it is up:
 curl http://localhost:5080/health
 ```
 
+Explore and execute every endpoint in the interactive Swagger UI at
+[`http://localhost:5080/swagger`](http://localhost:5080/swagger). The generated
+OpenAPI document is available at
+[`http://localhost:5080/swagger/v1/swagger.json`](http://localhost:5080/swagger/v1/swagger.json)
+for client generation and contract checks.
+
 Sample requests for every endpoint live in [`requests.http`](requests.http)
 (usable from VS Code REST Client, Rider, or Visual Studio).
 
@@ -157,7 +163,7 @@ appian-integration-mock-server/
 
 - [ ] Optional configurable latency/failure injection for resilience testing
 - [ ] Dockerfile for one-command startup
-- [ ] OpenAPI document for the endpoints
+- [x] OpenAPI document and interactive Swagger UI for the endpoints
 
 ## License
 
