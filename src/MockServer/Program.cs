@@ -1,9 +1,14 @@
 using Microsoft.OpenApi.Models;
 using MockServer.Data;
 using MockServer.Models;
+using MockServer.OpenApi;
+using System.Globalization;
+using System.Security.Cryptography;
+using System.Text;
 
 var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddEndpointsApiExplorer();
+builder.Services.AddSingleton<PaymentIdempotencyStore>();
 builder.Services.AddSwaggerGen(options =>
 {
     options.SwaggerDoc("v1", new OpenApiInfo
@@ -12,6 +17,7 @@ builder.Services.AddSwaggerGen(options =>
         Version = "v1",
         Description = "Fictional endpoints for local Appian integration development and testing."
     });
+    options.OperationFilter<PaymentIdempotencyOperationFilter>();
 });
 
 var app = builder.Build();
@@ -88,7 +94,7 @@ app.MapGet("/api/customers/{id}", (string id, HttpContext ctx) =>
 .Produces<ApiError>(StatusCodes.Status404NotFound);
 
 // --- Payment validation -------------------------------------------------
-app.MapPost("/api/payments/validate", (PaymentValidationRequest request, HttpContext ctx) =>
+app.MapPost("/api/payments/validate", (PaymentValidationRequest request, HttpContext ctx, PaymentIdempotencyStore idempotency) =>
 {
     var errors = request.Validate();
     if (errors.Count > 0)
@@ -99,22 +105,35 @@ app.MapPost("/api/payments/validate", (PaymentValidationRequest request, HttpCon
             Correlation(ctx), retryable: false, details: errors));
     }
 
-    // Fictional business rule: amounts over the threshold need manual review.
-    var approved = request.Amount <= 10_000m;
-    var response = new PaymentValidationResponse(
-        Reference: $"PAY-{DateTime.UtcNow:yyyyMMdd}-{Random.Shared.Next(100000, 999999)}",
-        Status: approved ? "APPROVED" : "REVIEW_REQUIRED",
-        Currency: request.Currency!,
-        Amount: request.Amount,
-        EvaluatedAtUtc: DateTime.UtcNow);
+    var (key, keyError) = ReadIdempotencyKey(ctx);
+    if (keyError is not null)
+    {
+        return Results.BadRequest(ApiError.Create(
+            "IDEMPOTENCY_KEY_INVALID", "client", keyError,
+            Correlation(ctx), retryable: false));
+    }
 
-    return Results.Ok(response);
+    if (key is null)
+        return Results.Ok(CreatePaymentResponse(request));
+
+    var result = idempotency.Execute(key, PaymentFingerprint(request), () => CreatePaymentResponse(request));
+    if (result.Conflict)
+    {
+        return Results.Conflict(ApiError.Create(
+            "IDEMPOTENCY_KEY_CONFLICT", "client",
+            "Idempotency-Key was already used for a different payment request.",
+            Correlation(ctx), retryable: false));
+    }
+
+    ctx.Response.Headers["Idempotency-Replayed"] = result.Replayed ? "true" : "false";
+    return Results.Ok(result.Response);
 })
 .WithName("ValidatePayment")
 .WithSummary("Validate a fictional payment request")
 .Accepts<PaymentValidationRequest>("application/json")
 .Produces<PaymentValidationResponse>(StatusCodes.Status200OK)
 .Produces<ApiError>(StatusCodes.Status400BadRequest)
+.Produces<ApiError>(StatusCodes.Status409Conflict)
 .Produces<ApiError>(StatusCodes.Status415UnsupportedMediaType);
 
 // --- Status callback ----------------------------------------------------
@@ -151,6 +170,45 @@ app.Run();
 
 static string Correlation(HttpContext ctx) =>
     ctx.Items["CorrelationId"] as string ?? Guid.NewGuid().ToString();
+
+static (string? Key, string? Error) ReadIdempotencyKey(HttpContext context)
+{
+    var values = context.Request.Headers["Idempotency-Key"];
+    if (values.Count == 0)
+        return (null, null);
+    if (values.Count != 1)
+        return (null, "Idempotency-Key must be provided at most once.");
+    var key = values[0]!;
+    if (key.Length is < 8 or > 128)
+        return (null, "Idempotency-Key must contain 8 through 128 characters.");
+    if (key.Any(character => !char.IsAsciiLetterOrDigit(character) && character is not '-' and not '_' and not '.' and not ':'))
+        return (null, "Idempotency-Key may contain only ASCII letters, digits, '-', '_', '.', and ':'.");
+    return (key, null);
+}
+
+static string PaymentFingerprint(PaymentValidationRequest request)
+{
+    var fields = new[]
+    {
+        request.Currency!.Trim().ToUpperInvariant(),
+        request.Amount.ToString("G29", CultureInfo.InvariantCulture),
+        request.DebtorAccount!.Trim(),
+        request.CreditorAccount!.Trim()
+    };
+    var canonical = string.Concat(fields.Select(value => $"{value.Length}:{value}"));
+    return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(canonical)));
+}
+
+static PaymentValidationResponse CreatePaymentResponse(PaymentValidationRequest request)
+{
+    var approved = request.Amount <= 10_000m;
+    return new PaymentValidationResponse(
+        Reference: $"PAY-{DateTime.UtcNow:yyyyMMdd}-{Random.Shared.Next(100000, 999999)}",
+        Status: approved ? "APPROVED" : "REVIEW_REQUIRED",
+        Currency: request.Currency!,
+        Amount: request.Amount,
+        EvaluatedAtUtc: DateTime.UtcNow);
+}
 
 static async Task WriteRequestError(HttpContext context, int statusCode)
 {
