@@ -103,6 +103,14 @@ curl -X POST http://localhost:5080/api/payments/validate \
   -d '{ "currency": "POUND", "amount": -5, "debtorAccount": "", "creditorAccount": "" }'
 ```
 
+Payment retries can include an `Idempotency-Key` header containing 8–128 ASCII
+letters, digits, `-`, `_`, `.`, or `:`. The first valid request stores its
+fictional response in a bounded process-local cache. An equivalent replay
+returns the exact same response with `Idempotency-Replayed: true`; reusing the
+key for different normalized payment data returns 409
+`IDEMPOTENCY_KEY_CONFLICT`. Requests without the header remain non-idempotent.
+State is in-memory test data only and is discarded on restart.
+
 ```json
 {
   "success": false,
